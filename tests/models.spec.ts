@@ -13,6 +13,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
+import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import { describe, expect, it } from 'vitest'
 import { DEEPSEEK_MODELS, DEFAULT_MODEL, DEFAULT_PROVIDER } from '../src/launcher/boot.js'
@@ -28,6 +29,11 @@ const RETIRED = ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp']
  */
 async function llmOnly(): Promise<Context> {
   const ctx = new Context()
+  // DSH 0.2 hides the API-key catalog without credentials. This catalog-only
+  // fixture must neither depend on a developer's key nor contact a model API.
+  ctx.provide('launchEnvironment', createLaunchEnvironmentSnapshot([
+    { source: 'process', values: { DEEPSEEK_API_KEY: 'sk-offline-catalog-fixture' } },
+  ]))
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmDeepSeek, { reasoningEffort: 'high', models: DEEPSEEK_MODELS })
   return ctx
