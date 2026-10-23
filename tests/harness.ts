@@ -8,6 +8,7 @@
 
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import {
   PROTOCOL_VERSION,
   client as createClientApp,
@@ -27,12 +28,12 @@ import LlmService from '@deepseek-ai/dsh-llm'
 import LocalAttachments from '@deepseek-ai/dsh-attachment-local'
 import LocalCredentials from '@deepseek-ai/dsh-credentials-local'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
-import FileSettings from '@deepseek-ai/dsh-settings-file'
 import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import SessionService from '@deepseek-ai/dsh-session'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-session-persistence'
-import JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionTitle from '@deepseek-ai/dsh-session-title'
 import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -52,6 +53,7 @@ import type {
   RequestPermissionRequest,
   RequestPermissionResponse,
 } from '@agentclientprotocol/sdk'
+import { AcpSettings } from '../src/composition/settings.js'
 import { ensurePiAi } from '../src/composition/pi-ai.js'
 import { mountNativeShell, type NativeShellToolName } from '../src/composition/shell.js'
 import * as bridge from '../src/index.js'
@@ -339,6 +341,7 @@ export async function createHarness(
   for (const plugin of [
     SystemPrompt,
     SessionService,
+    WorkingDirectory,
     LlmService,
     ToolRegistry,
     SessionProjections,
@@ -394,6 +397,7 @@ export async function createHarness(
   // 明确要测拒绝/提权的用例才要 `sandbox`。
   let mountedShell: NativeShellToolName | undefined
   if (options.shell !== undefined) {
+    if (ctx.get('fs') === undefined) await ctx.plugin(LocalFileSystem, {})
     await ctx.plugin(SpillStore, [])
     // 只挂 `-local`：它继承 `dsh-subprocess` 并注册同一个服务，两个都挂会以
     // 「服务已注册」失败；只挂 seam 则要到第一次执行才炸 spawn 不是函数。
@@ -427,11 +431,9 @@ export async function createHarness(
   // provider 配置面（`providers/*`）需要一个**可写**的设置服务与凭据服务。两者
   // 都指向用例给的隔离目录：这条链真的写盘。
   if (options.settings !== undefined) {
-    await ctx.plugin(FileSettings, {
+    await ctx.plugin(Loader, { baseUrl: import.meta.url })
+    await ctx.plugin(AcpSettings, {
       path: join(options.settings, 'settings.yaml'),
-      // watch 关掉，理由与 boot.ts 一致：watcher 持有事件循环。用例里还多一层
-      // ——vitest 不会因为一个悬着的 watcher 失败，只会在整轮结束时挂住。
-      watch: false,
     })
     await ctx.plugin(LocalCredentials, { dshHome: options.settings, watch: false })
     // 走与生产同一条幂等入口：`providers/*` 也会调它，两处各挂一次会以

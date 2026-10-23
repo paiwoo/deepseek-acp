@@ -13,7 +13,7 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
-import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import { describe, expect, it } from 'vitest'
 import { DEEPSEEK_MODELS, DEFAULT_MODEL, DEFAULT_PROVIDER } from '../src/launcher/boot.js'
 

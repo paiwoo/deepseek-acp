@@ -16,6 +16,27 @@ and can be configured as shown below, but has not yet been validated feature by 
 
 ---
 
+## DSH 0.2 compatibility
+
+This branch pins every DSH package to **0.2.1-rc.2** and requires **Node 22.19.0 or later**.
+It still assembles DSH inside the ACP process; it does not launch the official desktop runtime.
+New sessions use the native v4 log. The upstream persistence backend can restore supported v3
+logs and publishes a v4 successor while retaining the original v3 bytes. Migration support is
+subject to the upstream format policy; an old harness cannot read the resulting v4 log.
+
+The existing editor features remain in scope: streaming, tool cards, approval, questions,
+session restore/fork, model selection, MCP, and provider configuration. ACP provider edits keep
+using `$DSH_HOME/settings.yaml` and the credential store, without modifying native DSH profiles.
+The official API-key route remains deployment-owned and read-only in the ACP provider editor.
+
+**A newer kernel does not mean all official features are exposed.** Native background jobs,
+child-agent delegation, official account login/search, and the desktop extension composition are
+not added by this upgrade. Question forms also depend on client support: the permission-button
+fallback supports choices, but cannot collect free text. This scope preserves the project's
+existing composition boundaries.
+
+---
+
 ## Why This Exists
 
 DeepSeek Harness ships with an ACP server (`@deepseek-ai/dsh-acp`), but it is designed for

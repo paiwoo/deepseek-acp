@@ -8,6 +8,7 @@
 
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import LocalAttachments from '@deepseek-ai/dsh-attachment-local'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
@@ -19,17 +20,17 @@ import LocalCredentials from '@deepseek-ai/dsh-credentials-local'
 import { SandboxedFileSystem } from '@deepseek-ai/dsh-fs-sandbox'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import LlmService from '@deepseek-ai/dsh-llm'
-import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import type { DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import PlanMode from '@deepseek-ai/dsh-plan-mode'
 import * as RepeatToolReminder from '@deepseek-ai/dsh-repeat-tool-reminder'
 import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import SessionService from '@deepseek-ai/dsh-session'
-import JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SessionTitle from '@deepseek-ai/dsh-session-title'
-import FileSettings from '@deepseek-ai/dsh-settings-file'
 import * as ShellEnv from '@deepseek-ai/dsh-shell-env'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
@@ -45,6 +46,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import UserQuestions from '@deepseek-ai/dsh-user-questions'
 import { composeLsp, discoverLspServers, type LspServerSpec } from '../composition/lsp.js'
+import { AcpSettings } from '../composition/settings.js'
 import { ensurePiAi, settingsMentionsPiAi } from '../composition/pi-ai.js'
 import { mountNativeShell } from '../composition/shell.js'
 import * as acpBridge from '../index.js'
@@ -215,6 +217,7 @@ export async function composeAgent(
   }
   // 审批服务本身只是提问的接线板；真正的应答器由 bridge 注册（answerers/approval.ts）。
   // 没有应答器时链尾 fail-closed 成 `unavailable`。
+  await ctx.plugin(WorkingDirectory, {})
   await ctx.plugin(ApprovalService, {})
   // 同为 seam：提问的 UI 提供方由 bridge 注册（answerers/elicitation.ts），落到
   // ACP 的 `elicitation/create` 表单上。`exit_plan_mode` 的计划评审也走这条链。
@@ -306,7 +309,7 @@ export async function composeAgent(
   //
   // 它经 `ctx.fs` 读盘，而我们挂的是 `SandboxedFileSystem`。不受影响：那一层
   // 只对 `write` / `edit` 两个变更加围栏，读在任何模式下都直通。
-  await ctx.plugin(SkillFilesystem, {})
+  await ctx.plugin(SkillFilesystem, { watch: false })
   // 模型侧：注册 `skill` 工具，并在每个步骤前把目录作为持久 `<system-reminder>`
   // 注入。**注入的目录与技能正文都不会漏给客户端**——它们落在会话日志里的
   // source kind 是 `skill-catalog` / `skill-invocation`，而 `mapEvent` 对
@@ -444,15 +447,10 @@ export async function boot(env: NodeJS.ProcessEnv, onClosed?: () => void): Promi
   await ctx.plugin(LlmDeepSeek, { reasoningEffort: 'high', models: DEEPSEEK_MODELS })
   // ── 用户设置文档：多 provider 的配置面 ────────────────────────────────
   //
-  // 挂**具体 provider**（`settings-file`）而不是 `dsh-settings` —— 后者导出的
-  // `SettingsProvider` 是抽象基类（Service Definition），两个都挂会以「服务已
-  // 注册」失败。与 subprocess 那对是同一个坑，理由也同构。
-  //
-  // **`watch: false`**，与上面 `LocalCredentials` 同理且更要紧：fs watcher 会
-  // 一直持有事件循环，让进程在 stdin 关闭后不退出，也就是编辑器场景下的孤儿
-  // 进程。TC-GUARD-02 守着这条。代价是改完 `settings.yaml` 要重开会话才生效，
-  // 而「一个客户端连接 = 一个进程」本来就让热重载没有收益。
-  await ctx.plugin(FileSettings, { watch: false })
+  // DSH 0.2's settings forms belong to native profiles. ACP retains its
+  // document without mounting a native profile or mutating a desktop one.
+  await ctx.plugin(Loader, { baseUrl: import.meta.url })
+  await ctx.plugin(AcpSettings, {})
   // 通用多 provider 适配器：openai / anthropic / azure / vertex / bedrock 走
   // pi-ai 的内置目录，此外还能整条手工声明一个 OpenAI 兼容网关或自建服务。
   //
@@ -465,7 +463,7 @@ export async function boot(env: NodeJS.ProcessEnv, onClosed?: () => void): Promi
   // 会把这 5 秒加到每一次编辑器启动上（实测首次应答 ~3s → ~4-10s）。没配路由的
   // 部署什么都不损失——`providers/*` 那条线会在用户真的去配的时候现拉。
   // 理由与判据见 `src/composition/pi-ai.ts`。
-  if (await settingsMentionsPiAi(ctx.settings.documentPath)) {
+  if (await settingsMentionsPiAi(ctx.acpSettings.documentPath)) {
     await ensurePiAi(ctx)
   }
   await ctx.plugin(acpBridge, { ...readEnv(env), onClosed } as never)

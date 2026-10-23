@@ -150,7 +150,9 @@ describe('TC-COMP-07 技能栈（US-27）', () => {
     expect(skills).toBeDefined()
     const summaries = await skills!.list({ cwd: tmpdir() })
     expect(summaries.map((s) => s.name)).not.toContain('dsh')
-    expect(summaries.every((s) => s.source !== 'bundled')).toBe(true)
+    // DSH 0.2 also discovers launch-configured bundled roots; that does not
+    // mean the separate dsh-skill-badge plugin is composed.
+    expect(summaries.some((s) => s.name === 'dsh' && s.source === 'bundled')).toBe(false)
   }, 30_000)
 })
 

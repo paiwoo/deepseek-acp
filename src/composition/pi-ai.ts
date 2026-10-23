@@ -26,6 +26,7 @@
 
 import { readFile } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
 
 /** pi-ai 插件模块的类型；只用到命名空间插件契约与协议词表。 */
 type PiAiModule = typeof import('@deepseek-ai/dsh-llm-pi-ai')
@@ -49,6 +50,8 @@ export async function loadPiAi(): Promise<PiAiModule> {
 
 /** pi-ai 在设置服务里的命名空间；目录条目靠它辨认。 */
 const PI_AI_NS = 'llm-pi-ai'
+// Root and bridge contexts must wait for the same in-flight loader mount.
+const mounts = new WeakMap<object, Promise<void>>()
 
 /**
  * 确保 pi-ai 已挂进这个 context，**幂等**。
@@ -74,9 +77,25 @@ export async function ensurePiAi(ctx: Context): Promise<void> {
   const llm = ctx.get('llm')
   if (llm === undefined) return
   if (llm.listConfigurableProviders().some((entry) => entry.settingsNs === PI_AI_NS)) return
-  // 命名空间插件：模块命名空间本身就是插件。`providers` 留空 → 休眠挂载，
-  // 路由完全由 `llm-pi-ai:` 设置段决定。
-  await ctx.plugin(await loadPiAi(), {})
+  let mounting = mounts.get(ctx.root)
+  if (mounting === undefined) {
+    mounting = (async () => {
+      if (ctx.get('loader') === undefined) await ctx.root.plugin(Loader, { baseUrl: import.meta.url })
+      const loader = ctx.get('loader')!
+      const entry = {
+        id: PI_AI_NS,
+        name: '@deepseek-ai/dsh-llm-pi-ai',
+        config: ctx.get('acpSettings')?.section(PI_AI_NS) ?? {},
+      }
+      // The provider settings namespace follows its stable loader entry id.
+      loader.ensureId(entry)
+      await loader.create(entry)
+      await loader.await()
+    })()
+    mounts.set(ctx.root, mounting)
+  }
+  try { await mounting }
+  finally { if (mounts.get(ctx.root) === mounting) mounts.delete(ctx.root) }
 }
 
 /**

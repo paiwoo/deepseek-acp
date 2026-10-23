@@ -194,10 +194,10 @@ export function mapEvent(event: SessionEvent, context: MappingContext = {}): Ses
       // 工具。重新呈现会消费掉待决调用记录，还可能冲掉原本已完成的终端/diff。
       if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return []
 
-      const block = event.data.message.content[0]
+      const block = event.data.message
       const callId: ToolCallId = block.toolCallId
       const isError = block.isError ?? false
-      const view = presenter.result(callId, block.content, isError, event.data.meta)
+      const view = presenter.result(callId, [...block.content], isError, event.data.meta)
       return [toolResultUpdate(callId, view, isError, terminal)]
     }
 
